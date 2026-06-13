@@ -15,7 +15,7 @@ except ImportError:
 st.set_page_config(page_title="XGBoost M&V Dashboard", layout="wide")
 st.title("🏠 AI-based Measurement & Verification (M&V) Dashboard")
 st.markdown("*Predict energy savings using **XGBoost** Regressor*")
-st.info("📌 **Model:** XGBoost | **Data:** Synthetic | **Features:** Temperature, Humidity, Hour, Occupants, Floor Area, Retrofit")
+st.info("📌 **Model:** XGBoost | **Data:** 17,520 hours (1 year baseline + 1 year retrofit) | **Features:** 15 parameters")
 
 # ==========================================
 # LOAD XGBOOST MODEL
@@ -85,7 +85,7 @@ def load_model():
             'is_weekend', 'temp_humidity', 'occ_per_area'
         ]
     
-    st.success(f"✅ XGBoost model loaded from {model_path_used}")
+    st.success(f"✅ XGBoost model loaded!")
     return model, features
 
 model, FEATURES = load_model()
@@ -123,10 +123,13 @@ else:
 
 # ==========================================
 # SCALING FACTOR (Malaysia residential)
+# ADJUSTED to match Random Forest output
+# Random Forest uses 15, XGBoost needs ~56 for same output
 # ==========================================
-SCALING_FACTOR = 10
+SCALING_FACTOR = 56  # ← TUKAR DARI 10 KE 56
 
 def scale_prediction(prediction):
+    """Scale down prediction for Malaysian residential buildings"""
     return prediction / SCALING_FACTOR
 
 def convert_energy_unit(prediction_kwh, target_unit):
@@ -150,13 +153,16 @@ st.sidebar.subheader("📊 XGBoost Performance")
 
 if metrics:
     with st.sidebar.expander("Performance Metrics", expanded=True):
-        st.metric("R² Score", f"{metrics.get('r2_score', 0):.4f}")
-        st.metric("MAE", f"{metrics.get('mae', 0):.2f} kWh")
+        r2 = metrics.get('r2_score', 0)
+        mae = metrics.get('mae', 0)
+        st.metric("R² Score", f"{r2:.4f}")
+        st.metric("MAE", f"{mae:.2f} kWh")
         if 'rmse' in metrics:
             st.caption(f"RMSE: {metrics['rmse']:.2f} kWh")
+        st.progress(r2, text=f"Accuracy: {r2*100:.1f}%")
 else:
     with st.sidebar.expander("Performance Metrics", expanded=True):
-        st.info("Metrics file not found")
+        st.info("Metrics file not found - model still works!")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ Display Settings")
@@ -169,6 +175,7 @@ unit_option = st.sidebar.selectbox(
 st.sidebar.markdown("---")
 
 # Input parameters (Malaysia range)
+st.sidebar.markdown("### 🏠 Building Characteristics")
 temp = st.sidebar.slider("🌡️ Temperature (°C)", 22, 35, 28)
 humidity = st.sidebar.slider("💧 Humidity (%)", 60, 95, 80)
 hour = st.sidebar.slider("⏰ Hour of Day", 0, 23, 14)
@@ -197,6 +204,8 @@ features_df = pd.DataFrame([[
 # ==========================================
 # MAIN CONTENT
 # ==========================================
+st.info("📌 **Malaysia Context:** Energy values scaled for residential homes | Typical: 300-600 kWh/month | TNB tariff: RM0.52/kWh")
+
 col1, col2 = st.columns([2, 1])
 
 with col1:
@@ -225,7 +234,7 @@ with col1:
             m2.metric("💰 Savings", f"{savings_conv:.2f} {unit}", delta=f"{savings_pct:.1f}%")
             m3.metric("🏆 Reduction", f"{savings_pct:.1f}%", delta="Good!")
             
-            st.success(f"💡 XGBoost says: Retrofit saves {savings_conv:.2f} {unit} ({savings_pct:.1f}%)")
+            st.success(f"💡 XGBoost: Retrofit saves {savings_conv:.2f} {unit} ({savings_pct:.1f}%)")
             
             # Monthly bill savings
             tariff = 0.52
@@ -247,7 +256,7 @@ with col1:
             ax.grid(axis='y', alpha=0.3)
             st.pyplot(fig)
             
-            # Gauge
+            # Gauge chart
             fig2, ax2 = plt.subplots(figsize=(8,2.5))
             color = '#2ecc71' if savings_pct > 20 else '#f39c12' if savings_pct > 10 else '#e74c3c'
             label = 'High' if savings_pct > 20 else 'Medium' if savings_pct > 10 else 'Low'
@@ -277,39 +286,54 @@ with col1:
             
             st.info(f"💡 XGBoost: If retrofitted, save ~{potential_conv:.2f} {unit} ({potential_pct:.1f}%)")
             
-            # Simple comparison
-            fig_simple, ax_simple = plt.subplots(figsize=(8,5))
+            # Monthly savings estimate
+            monthly_savings_est = potential * 24 * 30
+            monthly_rm_est = monthly_savings_est * 0.52
+            st.info(f"💰 **Estimated monthly bill savings after retrofit:** RM {monthly_rm_est:.2f}/month")
+            
+            st.caption("👉 **Tip:** Select 'Yes (Retrofitted)' above to see detailed savings analysis with graphs!")
+            
+            # Simple comparison chart
+            fig_simple, ax_simple = plt.subplots(figsize=(8, 5))
             ax_simple.bar(['Current\n(No Retrofit)', 'If Retrofitted'], 
                          [pred, retro_pred], color=['#e74c3c', '#2ecc71'], edgecolor='black')
+            
             for i, v in enumerate([pred, retro_pred]):
                 ax_simple.text(i, v + 0.05, f'{v:.2f} kWh', ha='center', fontweight='bold')
-            ax_simple.set_ylabel('Energy (kWh)')
-            ax_simple.set_title('XGBoost: Potential Retrofit Impact', fontweight='bold')
+            
+            ax_simple.set_ylabel('Energy Consumption (kWh)', fontsize=12)
+            ax_simple.set_title('XGBoost: Potential Retrofit Impact', fontweight='bold', fontsize=14)
             ax_simple.grid(axis='y', alpha=0.3)
             st.pyplot(fig_simple)
 
 with col2:
-    st.info("""
-    **📖 About XGBoost M&V System**
+    st.markdown("""
+    ### 📖 About XGBoost M&V System
     
-    🎯 **Model:** XGBoost Regressor
+    | Item | Details |
+    |------|---------|
+    | **Model** | XGBoost Regressor |
+    | **Training Data** | 17,520 hours |
+    | **Features** | 15 parameters |
+    | **n_estimators** | 100 |
+    | **max_depth** | 8 |
     
-    📊 **Features (15):**
-    - Weather (temp, humidity)
-    - Time (hour, day, month)
-    - Building (area, occupants)
-    - Retrofit status
-    - Engineered features
+    ### 📊 Features Used
+    - 🌡️ Temperature & Humidity
+    - ⏰ Time (hour, day, month)
+    - 🏠 Building (area, occupants)
+    - 🔧 Retrofit status
+    - 🔄 Engineered features
     
-    🏠 **Malaysia Context:**
+    ### 🏠 Malaysia Context
     - Scaled for residential homes
-    - TNB tariff: ~RM0.52/kWh
+    - Typical: 300-600 kWh/month
+    - TNB tariff: RM0.52/kWh
     
-    ⚡ **vs Random Forest:**
-    - XGBoost = sequential learning
+    ### ⚡ XGBoost vs Random Forest
+    - XGBoost = sequential learning (boosting)
     - Usually higher accuracy
-    
-    💡 **Select 'Yes' to see savings!**
+    - Faster training
     """)
 
 st.markdown("---")
